@@ -4,7 +4,7 @@ package de.lmu.ifi.dbs.elki.datasource.filter.transform;
  This file is part of ELKI:
  Environment for Developing KDD-Applications Supported by Index-Structures
 
- Copyright (C) 2015
+ Copyright (C) 2016
  Ludwig-Maximilians-Universität München
  Lehr- und Forschungseinheit für Datenbanksysteme
  ELKI Development Team
@@ -39,25 +39,28 @@ import de.lmu.ifi.dbs.elki.logging.Logging;
 import de.lmu.ifi.dbs.elki.logging.progress.FiniteProgress;
 import de.lmu.ifi.dbs.elki.utilities.Alias;
 import de.lmu.ifi.dbs.elki.utilities.optionhandling.AbstractParameterizer;
+import de.lmu.ifi.dbs.elki.utilities.optionhandling.OptionID;
 import de.lmu.ifi.dbs.elki.utilities.optionhandling.parameterization.Parameterization;
 import de.lmu.ifi.dbs.elki.utilities.optionhandling.parameters.IntParameter;
 import de.lmu.ifi.dbs.elki.utilities.optionhandling.parameters.ObjectParameter;
+import de.lmu.ifi.dbs.elki.utilities.optionhandling.parameters.RandomParameter;
+import de.lmu.ifi.dbs.elki.utilities.random.RandomFactory;
 
 /**
  * Rescale the data set using multidimensional scaling, MDS.
  *
  * This implementation uses power iterations, which is faster when the number of
  * data points is much larger than the desired number of dimensions.
- * 
+ *
  * This implementation is O(n^2), and uses O(n^2) memory.
- * 
+ *
  * @author Erich Schubert
  * @since 0.6.0
- * 
- * @param <O> Data type
+ *
+ * @param <I> Data type
  */
 @Alias({ "fastmds" })
-public class FastMultidimensionalScalingTransform<O> implements ObjectFilter {
+public class FastMultidimensionalScalingTransform<I, O extends NumberVector> implements ObjectFilter {
   /**
    * Class logger.
    */
@@ -66,7 +69,7 @@ public class FastMultidimensionalScalingTransform<O> implements ObjectFilter {
   /**
    * Distance function to use.
    */
-  PrimitiveDistanceFunction<? super O> dist = null;
+  PrimitiveDistanceFunction<? super I> dist = null;
 
   /**
    * Target dimensionality
@@ -74,15 +77,29 @@ public class FastMultidimensionalScalingTransform<O> implements ObjectFilter {
   int tdim;
 
   /**
+   * Random generator.
+   */
+  RandomFactory random;
+
+  /**
+   * Vector factory.
+   */
+  NumberVector.Factory<O> factory;
+
+  /**
    * Constructor.
-   * 
+   *
    * @param tdim Target dimensionality.
    * @param dist Distance function to use.
+   * @param factory Vector factory.
+   * @param random Random generator.
    */
-  public FastMultidimensionalScalingTransform(int tdim, PrimitiveDistanceFunction<? super O> dist) {
+  public FastMultidimensionalScalingTransform(int tdim, PrimitiveDistanceFunction<? super I> dist, NumberVector.Factory<O> factory, RandomFactory random) {
     super();
     this.tdim = tdim;
     this.dist = dist;
+    this.random = random;
+    this.factory = factory;
   }
 
   @Override
@@ -104,7 +121,7 @@ public class FastMultidimensionalScalingTransform<O> implements ObjectFilter {
       }
       // Get the replacement type information
       @SuppressWarnings("unchecked")
-      final List<O> castColumn = (List<O>) column;
+      final List<I> castColumn = (List<I>) column;
       NumberVector.Factory<? extends NumberVector> factory = null;
       {
         if(type instanceof VectorFieldTypeInformation) {
@@ -144,19 +161,19 @@ public class FastMultidimensionalScalingTransform<O> implements ObjectFilter {
 
   /**
    * Compute the distance matrix of a vector column.
-   * 
+   *
    * @param col Column
    * @return Distance matrix
    */
-  protected double[][] computeDistanceMatrix(final List<O> col) {
+  protected double[][] computeDistanceMatrix(final List<I> col) {
     final int size = col.size();
     double[][] imat = new double[size][size];
     boolean squared = dist instanceof SquaredEuclideanDistanceFunction;
     FiniteProgress dprog = LOG.isVerbose() ? new FiniteProgress("Computing distance matrix", (size * (size - 1)) >>> 1, LOG) : null;
     for(int x = 0; x < size; x++) {
-      final O ox = col.get(x);
+      final I ox = col.get(x);
       for(int y = x + 1; y < size; y++) {
-        final O oy = col.get(y);
+        final I oy = col.get(y);
         double distance = dist.distance(ox, oy);
         distance *= (squared ? -.5 : (-.5 * distance));
         imat[x][y] = distance;
@@ -172,14 +189,14 @@ public class FastMultidimensionalScalingTransform<O> implements ObjectFilter {
 
   /**
    * Find the first eigenvectors and eigenvalues using power iterations.
-   * 
+   *
    * @param imat Matrix (will be modified!)
    * @param evs Eigenvectors output
    * @param lambda Eigenvalues output
    */
   protected void findEigenVectors(double[][] imat, double[][] evs, double[] lambda) {
     final int size = imat.length;
-    Random rnd = new Random(); // FIXME: make parameterizable
+    Random rnd = random.getSingleThreadedRandom();
     double[] tmp = new double[size];
     FiniteProgress prog = LOG.isVerbose() ? new FiniteProgress("Learning projections", tdim, LOG) : null;
     for(int d = 0; d < tdim;) {
@@ -209,7 +226,7 @@ public class FastMultidimensionalScalingTransform<O> implements ObjectFilter {
 
   /**
    * Choose a random vector of unit norm for power iterations.
-   * 
+   *
    * @param out Output storage
    * @param rnd Random source.
    */
@@ -260,7 +277,7 @@ public class FastMultidimensionalScalingTransform<O> implements ObjectFilter {
   /**
    * Compute the change in the eigenvector, and normalize the output vector
    * while doing so.
-   * 
+   *
    * @param in Input vector
    * @param out Output vector
    * @param l Eigenvalue
@@ -305,7 +322,7 @@ public class FastMultidimensionalScalingTransform<O> implements ObjectFilter {
 
   /**
    * Update matrix, by removing the effects of a known Eigenvector.
-   * 
+   *
    * @param mat Matrix
    * @param evec Known normalized Eigenvector
    * @param eval Eigenvalue
@@ -323,12 +340,17 @@ public class FastMultidimensionalScalingTransform<O> implements ObjectFilter {
 
   /**
    * Parameterization class.
-   * 
+   *
    * @author Erich Schubert
-   * 
+   *
    * @apiviz.exclude
    */
-  public static class Parameterizer<O extends NumberVector> extends AbstractParameterizer {
+  public static class Parameterizer<I, O extends NumberVector> extends AbstractParameterizer {
+    /**
+     * Random seed generator.
+     */
+    public static final OptionID RANDOM_ID = new OptionID("mds.seed", "Random seed for fast MDS.");
+
     /**
      * Target dimensionality.
      */
@@ -337,7 +359,17 @@ public class FastMultidimensionalScalingTransform<O> implements ObjectFilter {
     /**
      * Distance function to use.
      */
-    PrimitiveDistanceFunction<? super O> dist = null;
+    PrimitiveDistanceFunction<? super I> dist = null;
+
+    /**
+     * Random generator.
+     */
+    RandomFactory random = RandomFactory.DEFAULT;
+
+    /**
+     * Vector factory.
+     */
+    NumberVector.Factory<O> factory;
 
     @Override
     protected void makeOptions(Parameterization config) {
@@ -348,15 +380,25 @@ public class FastMultidimensionalScalingTransform<O> implements ObjectFilter {
         tdim = dimP.intValue();
       }
 
-      ObjectParameter<PrimitiveDistanceFunction<? super O>> distP = new ObjectParameter<>(ClassicMultidimensionalScalingTransform.Parameterizer.DISTANCE_ID, PrimitiveDistanceFunction.class, SquaredEuclideanDistanceFunction.class);
+      ObjectParameter<PrimitiveDistanceFunction<? super I>> distP = new ObjectParameter<>(ClassicMultidimensionalScalingTransform.Parameterizer.DISTANCE_ID, PrimitiveDistanceFunction.class, SquaredEuclideanDistanceFunction.class);
       if(config.grab(distP)) {
         dist = distP.instantiateClass(config);
+      }
+
+      RandomParameter randP = new RandomParameter(RANDOM_ID);
+      if(config.grab(randP)) {
+        random = randP.getValue();
+      }
+
+      ObjectParameter<NumberVector.Factory<O>> factoryP = new ObjectParameter<>(ClassicMultidimensionalScalingTransform.Parameterizer.VECTOR_TYPE_ID, NumberVector.Factory.class, DoubleVector.Factory.class);
+      if(config.grab(factoryP)) {
+        factory = factoryP.instantiateClass(config);
       }
     }
 
     @Override
-    protected FastMultidimensionalScalingTransform<O> makeInstance() {
-      return new FastMultidimensionalScalingTransform<>(tdim, dist);
+    protected FastMultidimensionalScalingTransform<I, O> makeInstance() {
+      return new FastMultidimensionalScalingTransform<>(tdim, dist, factory, random);
     }
   }
 }

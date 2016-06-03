@@ -8,7 +8,7 @@
 	<artifactId>elki-project</artifactId>
 	<packaging>pom</packaging>
 
-	<name>ELKI Data Mining Framework - Parent Project</name>
+	<name>ELKI Data Mining Framework</name>
 	<url>http://elki.dbs.ifi.lmu.de/</url>
 	<organization>
 		<name>ELKI Development Team, Lehr- und Forschungseinheit für Datenbanksysteme, Ludwig-Maximilians-Universität München</name>
@@ -100,7 +100,7 @@
 				<executions>
 					<execution>
 						<id>copy-dependencies</id>
-						<phase>package</phase>
+						<phase>process-sources</phase>
 						<goals>
 							<goal>copy-dependencies</goal>
 						</goals>
@@ -275,6 +275,31 @@
 				<plugin>
 					<artifactId>maven-javadoc-plugin</artifactId>
 					<version>2.10.1</version>
+				</plugin>
+				<!-- Ignore maven-dependency plugin in M2E -->
+				<plugin>
+					<groupId>org.eclipse.m2e</groupId>
+					<artifactId>lifecycle-mapping</artifactId>
+					<version>1.0.0</version>
+					<configuration>
+						<lifecycleMappingMetadata>
+							<pluginExecutions>
+								<pluginExecution>
+									<pluginExecutionFilter>
+										<groupId>org.apache.maven.plugins</groupId>
+										<artifactId>maven-dependency-plugin</artifactId>
+										<versionRange>[0.0,)</versionRange>
+										<goals>
+											<goal>copy-dependencies</goal>
+										</goals>
+									</pluginExecutionFilter>
+									<action>
+										<ignore />
+									</action>
+								</pluginExecution>
+							</pluginExecutions>
+						</lifecycleMappingMetadata>
+					</configuration>
 				</plugin>
 			</plugins>
 		</pluginManagement>
